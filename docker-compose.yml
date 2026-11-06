@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: amaravati-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: amaravati
+      POSTGRES_PASSWORD: amaravati
+      POSTGRES_DB: amaravati_one
+    ports:
+      - "5433:5432"
+    volumes:
+      - amaravati_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amaravati -d amaravati_one"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  amaravati_pgdata:

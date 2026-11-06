@@ -1,0 +1,303 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CITIZEN
+  OFFICER
+  ADMIN
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  DOCUMENTS_VERIFIED
+  UNDER_REVIEW
+  CORRECTION_REQUESTED
+  APPROVED
+  REJECTED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum CredentialType {
+  AADHAAR
+  DIGILOCKER
+  PROPERTY
+  LICENCE
+  DOCUMENT
+}
+
+enum CredentialStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum NotificationType {
+  DUE_DATE
+  STATUS_UPDATE
+  PAYMENT
+  GENERAL
+}
+
+enum DueType {
+  PROPERTY_TAX
+  LICENCE_EXPIRY
+  APPLICATION_ACTION
+  PAYMENT_DEADLINE
+  DOCUMENT_EXPIRY
+}
+
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  passwordHash     String
+  fullName         String
+  phone            String?   @unique
+  role             Role      @default(CITIZEN)
+  isActive         Boolean   @default(true)
+  phoneVerified    Boolean   @default(false)
+  phoneOtp         String?
+  resetToken       String?
+  resetTokenExpiry DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  profile              CitizenProfile?
+  applications         Application[]             @relation("ApplicantApplications")
+  assignedApplications Application[]             @relation("AssignedOfficer")
+  documentsUploaded    ApplicationDocument[]     @relation("DocumentUploader")
+  documentsVerified    ApplicationDocument[]     @relation("DocumentVerifier")
+  statusChanges        ApplicationStatusHistory[]
+  credentials          Credential[]
+  payments             Payment[]
+  notifications        Notification[]
+  dueDates             DueDate[]
+  officerAssignments   OfficerAssignment[]       @relation("OfficerAssignmentOfficer")
+  assignmentsMade      OfficerAssignment[]       @relation("OfficerAssignmentAssigner")
+  auditLogs            AuditLog[]
+}
+
+model CitizenProfile {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aadhaarNumber String?
+  addressLine   String?
+  city          String?
+  district      String?
+  state         String?   @default("Andhra Pradesh")
+  pincode       String?
+  dateOfBirth   DateTime?
+  gender        String?
+  avatarUrl     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("citizen_profiles")
+}
+
+model Service {
+  id                String        @id @default(cuid())
+  code              String        @unique
+  name              String
+  category          String
+  description       String
+  eligibility       String
+  requiredDocuments String[]
+  fee               Decimal       @default(0) @db.Decimal(10, 2)
+  processingDays    Int           @default(7)
+  isActive          Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  applications      Application[]
+
+  @@map("services")
+}
+
+model Application {
+  id                String            @id @default(cuid())
+  referenceNo       String            @unique
+  userId            String
+  user              User              @relation("ApplicantApplications", fields: [userId], references: [id])
+  serviceId         String
+  service           Service           @relation(fields: [serviceId], references: [id])
+  status            ApplicationStatus @default(SUBMITTED)
+  formData          Json?
+  assignedOfficerId String?
+  assignedOfficer   User?             @relation("AssignedOfficer", fields: [assignedOfficerId], references: [id])
+  officerRemarks    String?
+  submittedAt       DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  decidedAt         DateTime?
+
+  documents     ApplicationDocument[]
+  statusHistory ApplicationStatusHistory[]
+  payments      Payment[]
+  assignments   OfficerAssignment[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("applications")
+}
+
+model ApplicationDocument {
+  id             String      @id @default(cuid())
+  applicationId  String
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  uploadedById   String
+  uploadedBy     User        @relation("DocumentUploader", fields: [uploadedById], references: [id])
+  fileName       String
+  filePath       String
+  mimeType       String
+  size           Int
+  documentType   String
+  isVerified     Boolean     @default(false)
+  verifiedById   String?
+  verifiedBy     User?       @relation("DocumentVerifier", fields: [verifiedById], references: [id])
+  verifiedAt     DateTime?
+  createdAt      DateTime    @default(now())
+
+  @@map("application_documents")
+}
+
+model ApplicationStatusHistory {
+  id            String            @id @default(cuid())
+  applicationId String
+  application   Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  status        ApplicationStatus
+  remarks       String?
+  changedById   String?
+  changedBy     User?             @relation(fields: [changedById], references: [id])
+  createdAt     DateTime          @default(now())
+
+  @@map("application_status_history")
+}
+
+model Credential {
+  id               String                  @id @default(cuid())
+  userId           String
+  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type             CredentialType
+  title            String
+  issuer           String
+  credentialNumber String?
+  status           CredentialStatus        @default(PENDING)
+  issuedAt         DateTime?
+  expiresAt        DateTime?
+  metadata         Json?
+  verifiedAt       DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  verifications    CredentialVerification[]
+
+  @@index([userId])
+  @@map("credentials")
+}
+
+model CredentialVerification {
+  id           String           @id @default(cuid())
+  credentialId String
+  credential   Credential       @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  status       CredentialStatus
+  method       String           @default("SIMULATED")
+  remarks      String?
+  verifiedAt   DateTime         @default(now())
+
+  @@map("credential_verifications")
+}
+
+model Payment {
+  id             String        @id @default(cuid())
+  referenceNo    String        @unique
+  userId         String
+  user           User          @relation(fields: [userId], references: [id])
+  applicationId  String?
+  application    Application?  @relation(fields: [applicationId], references: [id])
+  amount         Decimal       @db.Decimal(10, 2)
+  currency       String        @default("INR")
+  status         PaymentStatus @default(PENDING)
+  method         String        @default("UPI")
+  purpose        String?
+  transactionId  String?
+  upiId          String?
+  paidAt         DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([userId])
+  @@map("payments")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType @default(GENERAL)
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model DueDate {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type          DueType
+  title         String
+  description   String?
+  dueDate       DateTime
+  amount        Decimal?  @db.Decimal(10, 2)
+  referenceId   String?
+  isCompleted   Boolean   @default(false)
+  reminderSentAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("due_dates")
+}
+
+model OfficerAssignment {
+  id            String      @id @default(cuid())
+  officerId     String
+  officer       User        @relation("OfficerAssignmentOfficer", fields: [officerId], references: [id])
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  assignedById  String?
+  assignedBy    User?       @relation("OfficerAssignmentAssigner", fields: [assignedById], references: [id])
+  isActive      Boolean     @default(true)
+  assignedAt    DateTime    @default(now())
+
+  @@map("officer_assignments")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
